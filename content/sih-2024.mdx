@@ -1,0 +1,516 @@
+---
+title: 'Smart India Hackathon 2024'
+publishedAt: '2024-08-08'
+summary: 'Our official entry of the sih 2024, a geoloaction based attendance tracking app built for GAIL.'
+---
+
+---
+
+## Team Roles
+
+### Dev Shakya [ @devxoshakya](https://github.com/devxoshakya)
+
+Frontend (Next.js, MagicUI, AceternityUI, Javascript)
+
+### Akshita Srivastava [ @akshitasrivastava20](https://github.com/akshitasrivastava20)
+
+Frontend (React.js, Javascript)
+
+### Ayush Bisht [@WebDev-Ayush](https://github.com/WebDev-Ayush)
+
+Backend (express, Node.js)
+
+### Suryansh Patwal [@StrugglerSuryansh](https://github.com/StrugglerSuryansh)
+
+Database (MongoDB, Passport.js)
+
+### Yagyansh Singh Deshwal [@yaggggy](https://github.com/yaggggy)
+
+Database (MongoDB)
+
+---
+
+### Comprehensive Guide to Developing a Geolocation-Based Attendance Tracking App
+
+This guide provides a detailed approach to building the attendance tracking app using Next.js, MongoDB, Express, Node.js, Google Maps API, Tailwind CSS, Magic UI, Aceternity UI, and Passport.js for authentication. The app will be developed as a PWA and later converted into a TWA for Android.
+
+---
+
+### 1. **Project Structure**
+
+Here's an overview of the Next.js project structure:
+
+```
+attendance-app/
+│
+├── public/
+│   ├── icons/
+│   ├── manifest.json
+│   └── service-worker.js
+│
+├── src/
+│   ├── components/
+│   │   ├── Auth/
+│   │   ├── Dashboard/
+│   │   ├── Layout/
+│   │   └── Map/
+│   │
+│   ├── pages/
+│   │   ├── api/
+│   │   │   ├── auth/
+│   │   │   ├── employees/
+│   │   │   ├── geolocation/
+│   │   │   ├── admin/
+│   │   │   └── moderator/
+│   │   ├── _app.jsx
+│   │   ├── _document.jsx
+│   │   └── index.jsx
+│   │
+│   ├── styles/
+│   │   └── globals.css
+│   │
+│   ├── utils/
+│   │   ├── apiHelper.js
+│   │   └── geolocationHelper.js
+│   │
+│   ├── middleware/
+│   │   ├── passport.js
+│   │   └── authMiddleware.js
+│   │
+│   ├── config/
+│   │   └── db.js
+│   │
+│   └── models/
+│       ├── User.js
+│       ├── Admin.js
+│       ├── Moderator.js
+│       └── Attendance.js
+│
+├── .babelrc
+├── .eslintrc.json
+├── package.json
+└── tailwind.config.js
+```
+
+---
+
+### 2. **Tailwind CSS Integration**
+
+**Global Styles:**
+
+- Update your global CSS in `globals.css`:
+
+  ```css
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+  ```
+
+**Using Tailwind in Components:**
+
+- Example of using Tailwind in a button component:
+
+  ```jsx
+  const Button = ({ text }) => (
+    <button className="rounded bg-blue-500 px-4 py-2 font-bold text-white hover:bg-blue-700">
+      {text}
+    </button>
+  )
+  export default Button
+  ```
+
+---
+
+### 3. **Database Design and Models**
+
+We will use MongoDB with Mongoose as our ODM.
+
+**Database Models:**
+
+1. **User Model:**
+
+   ```javascript
+   const mongoose = require('mongoose')
+
+   const userSchema = new mongoose.Schema({
+     name: { type: String, required: true },
+     rollNo: { type: String, unique: true, required: true },
+     email: { type: String, unique: true, required: true },
+     password: { type: String, required: true },
+     role: {
+       type: String,
+       enum: ['employee', 'admin', 'moderator'],
+       default: 'employee',
+     },
+     location: {
+       type: { type: String, default: 'Point' },
+       coordinates: [Number],
+     },
+     createdAt: { type: Date, default: Date.now },
+   })
+
+   userSchema.index({ location: '2dsphere' })
+
+   module.exports = mongoose.model('User', userSchema)
+   ```
+
+2. **Attendance Model:**
+
+   ```javascript
+   const mongoose = require('mongoose')
+
+   const attendanceSchema = new mongoose.Schema({
+     user: {
+       type: mongoose.Schema.Types.ObjectId,
+       ref: 'User',
+       required: true,
+     },
+     checkIn: { type: Date, required: true },
+     checkOut: { type: Date },
+     location: {
+       type: { type: String, default: 'Point' },
+       coordinates: [Number],
+     },
+   })
+
+   module.exports = mongoose.model('Attendance', attendanceSchema)
+   ```
+
+3. **Admin Model:**
+
+   ```javascript
+   const mongoose = require('mongoose')
+
+   const adminSchema = new mongoose.Schema({
+     user: {
+       type: mongoose.Schema.Types.ObjectId,
+       ref: 'User',
+       required: true,
+     },
+     officeLocation: {
+       type: { type: String, default: 'Point' },
+       coordinates: [Number],
+     },
+   })
+
+   module.exports = mongoose.model('Admin', adminSchema)
+   ```
+
+4. **Moderator Model:**
+
+   ```javascript
+   const mongoose = require('mongoose')
+
+   const moderatorSchema = new mongoose.Schema({
+     user: {
+       type: mongoose.Schema.Types.ObjectId,
+       ref: 'User',
+       required: true,
+     },
+   })
+
+   module.exports = mongoose.model('Moderator', moderatorSchema)
+   ```
+
+---
+
+### 4. **Backend Structure with Passport.js Authentication**
+
+#### **Passport.js Configuration**
+
+1. **Passport Middleware (`passport.js`):**
+
+   ```javascript
+   const passport = require('passport')
+   const LocalStrategy = require('passport-local').Strategy
+   const User = require('../models/User')
+   const bcrypt = require('bcrypt')
+
+   passport.use(
+     new LocalStrategy(
+       {
+         usernameField: 'email',
+       },
+       async (email, password, done) => {
+         try {
+           const user = await User.findOne({ email })
+           if (!user) return done(null, false, { message: 'Incorrect email.' })
+           const isMatch = await bcrypt.compare(password, user.password)
+           if (!isMatch)
+             return done(null, false, { message: 'Incorrect password.' })
+           return done(null, user)
+         } catch (err) {
+           return done(err)
+         }
+       }
+     )
+   )
+
+   passport.serializeUser((user, done) => {
+     done(null, user.id)
+   })
+
+   passport.deserializeUser(async (id, done) => {
+     try {
+       const user = await User.findById(id)
+       done(null, user)
+     } catch (err) {
+       done(err)
+     }
+   })
+
+   module.exports = passport
+   ```
+
+2. **Authentication Middleware (`authMiddleware.js`):**
+
+   ```javascript
+   const ensureAuthenticated = (req, res, next) => {
+     if (req.isAuthenticated()) {
+       return next()
+     }
+     res.redirect('/login')
+   }
+
+   module.exports = { ensureAuthenticated }
+   ```
+
+#### **API Structure**
+
+**Authentication Routes:**
+
+- `POST /api/auth/login`: Authenticates a user using Passport.js.
+
+  ```javascript
+  import passport from 'passport'
+  import nextConnect from 'next-connect'
+
+  const handler = nextConnect()
+
+  handler.post(passport.authenticate('local'), (req, res) => {
+    res.status(200).json({ user: req.user })
+  })
+
+  export default handler
+  ```
+
+- `POST /api/auth/logout`: Logs out a user.
+
+  ```javascript
+  export default (req, res) => {
+    req.logout()
+    res.status(200).json({ message: 'Logged out' })
+  }
+  ```
+
+**Geolocation Routes:**
+
+- `POST /api/geolocation/check-in`: Records a user's check-in with location data.
+
+  ```javascript
+  import nextConnect from 'next-connect'
+  import { ensureAuthenticated } from '../../../middleware/authMiddleware'
+  import Attendance from '../../../models/Attendance'
+
+  const handler = nextConnect()
+
+  handler.use(ensureAuthenticated).post(async (req, res) => {
+    const { lat, lng } = req.body
+    const attendance = new Attendance({
+      user: req.user._id,
+      checkIn: new Date(),
+      location: { type: 'Point', coordinates: [lng, lat] },
+    })
+    await attendance.save()
+    res.status(200).json({ message: 'Check-in recorded' })
+  })
+
+  export default handler
+  ```
+
+- `POST /api/geolocation/check-out`: Records a user's check-out with location data.
+
+  ```javascript
+  import nextConnect from 'next-connect'
+  import { ensureAuthenticated } from '../../../middleware/authMiddleware'
+  import Attendance from '../../../models/Attendance'
+
+  const handler = nextConnect()
+
+  handler.use(ensureAuthenticated).post(async (req, res) => {
+    const { lat, lng } = req.body
+    const attendance = await Attendance.findOne({
+      user: req.user._id,
+      checkOut: null,
+    })
+    if (attendance) {
+      attendance.checkOut = new Date()
+      attendance.location.coordinates = [lng, lat]
+      await attendance.save()
+      res.status(200).json({ message: 'Check-out recorded' })
+    } else {
+      res.status(400).json({ message: 'No active check-in found' })
+    }
+  })
+
+  export default handler
+  ```
+
+**Admin Routes:**
+
+- `POST /api/admin/add-employee`: Adds a new employee.
+
+  ```javascript
+  import nextConnect from 'next-connect'
+  import { ensureAuthenticated } from '../../../middleware/authMiddleware'
+  import User from '../../../models/User'
+
+  const handler = nextConnect()
+
+  handler.use(ensureAuthenticated).post(async (req, res) => {
+    const { name, email, password, role } = req.body
+    const newUser = new User({ name, email, password, role })
+    await newUser.save()
+    res.status(201).json({ message: 'Employee added' })
+  })
+
+  export default handler
+  ```
+
+---
+
+### 5. **Google Maps API Integration**
+
+**Display Office Location and Geofencing:**
+
+- **Load Google Maps API:**
+
+  ```jsx
+  import { GoogleMap, LoadScript, Marker, Circle } from '@react-google-maps/api'
+
+  const containerStyle = {
+    width: '100%',
+    height: '400px',
+  }
+
+  const center = { lat: 28.6139, lng: 77.209 }
+
+  const options = {
+    strokeColor: '#FF0000',
+    strokeOpacity: 0.8,
+    strokeWeight: 2,
+    fillColor: '#FF0000',
+    fillOpacity: 0.35,
+    clickable: false,
+    draggable: false,
+    editable: false,
+    visible: true,
+    radius: 100,
+    zIndex: 1,
+  }
+
+  const MyMapComponent = () => (
+    <LoadScript googleMapsApiKey="YOUR_GOOGLE_MAPS_API_KEY">
+      <GoogleMap mapContainerStyle={containerStyle} center={center} zoom={15}>
+        <Marker position={center} />
+        <Circle center={center} options={options} />
+      </GoogleMap>
+    </LoadScript>
+  )
+
+  export default MyMapComponent
+  ```
+
+- **Determine User Location:**
+
+  ```javascript
+  export const getCurrentLocation = () => {
+    return new Promise((resolve, reject) => {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(resolve, reject)
+      } else {
+        reject(new Error('Geolocation is not supported by this browser.'))
+      }
+    })
+  }
+  ```
+
+---
+
+### 6. **PWA Conversion and TWA Implementation**
+
+**PWA Setup:**
+
+- **Manifest File (`manifest.json`):**
+
+  ```json
+  {
+    "name": "Attendance App",
+    "short_name": "Attendance",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#000000",
+    "icons": [
+      {
+        "src": "/icons/icon-192x192.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "/icons/icon-512x512.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ]
+  }
+  ```
+
+- **Service Worker (`service-worker.js`):**
+
+  ```javascript
+  self.addEventListener('install', (event) => {
+    event.waitUntil(
+      caches.open('attendance-app-v1').then((cache) => {
+        return cache.addAll([
+          '/',
+          '/index.html',
+          '/manifest.json',
+          '/icons/icon-192x192.png',
+        ])
+      })
+    )
+  })
+
+  self.addEventListener('fetch', (event) => {
+    event.respondWith(
+      caches.match(event.request).then((response) => {
+        return response || fetch(event.request)
+      })
+    )
+  })
+  ```
+
+**TWA Conversion:**
+
+1. **Generate Android Project:**
+
+   Use tools like `bubblewrap` to create a TWA from your PWA:
+
+   ```bash
+   npx @bubblewrap/cli init
+   ```
+
+2. **Configure `twa-manifest.json`:**
+
+   Ensure the file correctly points to your web app and set necessary settings.
+
+3. **Build and Deploy:**
+
+   Build the project using Android Studio and deploy it to the Play Store.
+
+---
+
+### Conclusion
+
+This comprehensive guide outlines the full-stack development approach for the geolocation-based attendance tracking app. It includes setting up the environment, designing the backend and database, integrating Google Maps, implementing authentication with Passport.js, and converting the PWA to a TWA. The structure and code snippets provided should help in building a robust, scalable, and user-friendly application.

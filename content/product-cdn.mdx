@@ -1,0 +1,195 @@
+---
+title: "Serve Product Images via Cloudflare R2 + CDN on mppharmaceuticals.com"
+summary: "Step-by-step guide to upload structured media folders to Cloudflare R2 and serve them via CDN using Workers on mppharmaceuticals.com"
+publishedAt: "2025-04-15"
+---
+
+# 🚀 Set Up a CDN for Your Product Images with Cloudflare R2 + Workers + Vercel
+
+Managing a structured media repo (like product images in category folders) and serving them via CDN can boost load times, improve SEO, and simplify frontend integration. In this guide, we’ll walk you through:
+
+> **Goal:** Store images like `/tablets/paracetamol.png` in Cloudflare R2 and serve them from `https://cdn.mppharmaceuticals.com/tablets/paracetamol.png`.
+
+---
+
+## ✅ Step 1: Organize Your Media Repository
+
+Structure your media folder locally like this:
+
+```bash
+media/
+├── tablets/
+│   ├── paracetamol.png
+│   └── ibuprofen.png
+├── syrups/
+│   ├── coughx.png
+└── injections/
+    └── insulin.png
+```
+
+> Keep file and folder names lowercase and URL-friendly (e.g. hyphens instead of spaces).
+
+---
+
+## ✅ Step 2: Set Up Cloudflare R2
+
+### 1. Go to [Cloudflare R2](https://dash.cloudflare.com/)
+- Select your account and go to **R2**.
+- Click **"Create Bucket"**
+  - **Bucket name:** `media`
+
+### 2. Enable Public Access
+- Inside the bucket → **Settings** → Enable **“Public access”**.
+
+---
+
+## ✅ Step 3: Upload Files to R2
+
+You can upload manually or use the AWS SDK if automating:
+
+### Option A: Manually
+- Go into the `media` bucket → Upload folders like `tablets`, `syrups`, etc.
+
+### Option B: Programmatically via Node.js
+
+Install AWS SDK for R2:
+
+```bash
+bun add @aws-sdk/client-s3
+```
+
+Example upload script:
+
+```ts
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { readdirSync, readFileSync } from "fs";
+import path from "path";
+
+const client = new S3Client({
+  region: "auto",
+  endpoint: "https://<your-account-id>.r2.cloudflarestorage.com",
+  credentials: {
+    accessKeyId: "YOUR_R2_ACCESS_KEY",
+    secretAccessKey: "YOUR_R2_SECRET_KEY",
+  },
+});
+
+const uploadDir = (dir: string, prefix = "") => {
+  const files = readdirSync(dir, { withFileTypes: true });
+  for (const file of files) {
+    const fullPath = path.join(dir, file.name);
+    const key = path.join(prefix, file.name);
+    if (file.isDirectory()) {
+      uploadDir(fullPath, key);
+    } else {
+      const Body = readFileSync(fullPath);
+      client.send(
+        new PutObjectCommand({
+          Bucket: "media",
+          Key: key,
+          Body,
+          ContentType: "image/png",
+        })
+      ).then(() => console.log(`Uploaded: ${key}`));
+    }
+  }
+};
+
+uploadDir("media");
+```
+
+---
+
+## ✅ Step 4: Set Up CDN Using Cloudflare Workers
+
+### 1. Create a New Worker
+Go to **Cloudflare Dashboard → Workers & Pages → Create Worker**
+
+Paste this code:
+
+```ts
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const key = url.pathname.slice(1);
+
+    const object = await env.MEDIA_BUCKET.get(key);
+    if (!object || !object.body) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return new Response(object.body, {
+      headers: {
+        "Content-Type": object.httpMetadata?.contentType || "image/png",
+        "Cache-Control": "public, max-age=31536000",
+      },
+    });
+  },
+};
+```
+
+### 2. Bind Your R2 Bucket to the Worker
+- In the Worker dashboard → **Settings → Environment Variables → R2 Bindings**
+  - Binding name: `MEDIA_BUCKET`
+  - Bucket name: `media`
+
+### 3. Set Route for Custom Domain
+
+#### A. Set up a Subdomain
+- In Cloudflare DNS, add:
+  - **Type:** CNAME  
+  - **Name:** `cdn`  
+  - **Target:** `workers.dev` (or the Worker subdomain)
+
+#### B. Add Custom Domain to Worker
+- Go to your Worker → **Triggers → Custom Domains**
+- Add: `cdn.mppharmaceuticals.com`
+
+Cloudflare will guide you to verify DNS and SSL.
+
+---
+
+## ✅ Step 5: Use the CDN in Vercel or Anywhere
+
+In your Vercel (Next.js) app:
+
+```tsx
+<Image
+  src="https://cdn.mppharmaceuticals.com/tablets/paracetamol.png"
+  width={500}
+  height={500}
+  alt="Paracetamol"
+/>
+```
+
+Also update your `next.config.js`:
+
+```js
+module.exports = {
+  images: {
+    domains: ['cdn.mppharmaceuticals.com'],
+  },
+};
+```
+
+---
+
+## 🧪 Final Test
+
+Try visiting:
+
+```url
+https://cdn.mppharmaceuticals.com/syrups/coughx.png
+```
+
+✅ You should see the image served from R2 with full CDN caching.
+
+---
+
+## ✨ Optional: Add Image Optimization
+
+To support on-the-fly resizing:
+- Use Cloudflare **Image Resizing** inside Workers
+- Or process query parameters (e.g. `?width=400`) via Sharp
+
+---

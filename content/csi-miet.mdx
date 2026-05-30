@@ -1,0 +1,288 @@
+---
+title: 'CSI MIET WEBSITE PLAN'
+publishedAt: '2024-12-21'
+summary: 'This plan will cover out core idea of what the upcoming website should look like and what are the functions it will perform.'
+---
+
+
+# CSI MIET App Implementation Guide
+
+This guide explains the implementation of the CSI MIET app in detail, covering the routes, project structure, Mongoose schemas, and API implementations. Each feature is explained step-by-step with sample code and in-depth explanations.
+
+---
+
+## **Project Structure**
+
+Organization of project is as follows:
+
+```
+csi-miet-app/
+├── pages/
+│   ├── api/
+│   │   ├── attendance.js
+│   │   ├── checkin.js
+│   │   ├── events.js
+│   │   └── register.js
+│   ├── index.js
+│   ├── tree.js
+│   ├── whats-happening.js
+│   ├── attendance.js
+│   └── attendees.js
+├── components/
+│   ├── Navbar.js
+│   ├── Footer.js
+│   ├── QRScanner.js
+├── lib/
+│   └── mongodb.js
+├── models/
+│   ├── Attendance.js
+│   ├── CheckIn.js
+│   ├── Event.js
+│   └── User.js
+├── public/
+│   └── images/
+├── styles/
+│   └── globals.css
+├── .env
+├── next.config.js
+├── package.json
+└── README.md
+```
+
+---
+
+## **1. Landing Page (Route: `/`)**
+
+### Description:
+The landing page serves as the main entry point, showcasing CSI MIET, its mission, past events, and highlights.
+
+### Code:
+**Frontend Implementation**
+```tsx
+// pages/index.js
+export default function Home() {
+  return (
+    <div className="prose mx-auto p-4">
+      <h1>Welcome to CSI MIET</h1>
+      <p>We are a student chapter of the Computer Society of India, bringing innovation and technology to life.</p>
+      <section>
+        <h2>What We Do</h2>
+        <p>Workshops, hackathons, coding competitions, and more.</p>
+      </section>
+      <section>
+        <h2>Highlights</h2>
+        <p>Check out our impactful past events and achievements.</p>
+      </section>
+    </div>
+  );
+}
+```
+
+---
+
+## **2. Linktree Clone (Route: `/tree`)**
+
+### Description:
+This route acts as a linktree for CSI MIET’s social media and related links.
+
+### Code:
+**Frontend Implementation**
+```tsx
+// pages/tree.js
+const links = [
+  { name: 'Instagram', url: 'https://instagram.com/csi_miet' },
+  { name: 'GitHub', url: 'https://github.com/csi-miet' },
+  { name: 'Website', url: 'https://csi.miet.edu' },
+];
+
+export default function Tree() {
+  return (
+    <div className="flex flex-col items-center space-y-4 p-4">
+      {links.map((link) => (
+        <a key={link.name} href={link.url} className="btn btn-primary">
+          {link.name}
+        </a>
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## **3. What's Happening (Route: `/whats-happening`)**
+
+### Description:
+This page dynamically renders `.mdx` files to display details of past and upcoming events.
+
+### Implementation:
+
+**MDX File Example:**
+```mdx
+---
+title: "How to Join Us?"
+eventName: "test-event"
+summary: "A comprehensive guide on how to join CSI MIET."
+---
+
+# How to Join Us?
+
+To join CSI MIET, follow these steps:
+
+1. Register using your college email.
+2. Scan your ID card for verification.
+3. Participate in events and make an impact!
+
+![Join Us](https://example.com/join-us-image.jpg)
+```
+
+**Backend API to Handle Event Creation**
+```javascript
+// pages/api/events.js
+import Event from '../../models/Event';
+import connectToDatabase from '../../lib/mongodb';
+
+export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    const { eventName, title, summary } = req.body;
+
+    try {
+      await connectToDatabase();
+      const existingEvent = await Event.findOne({ name: eventName });
+      if (!existingEvent) {
+        const newEvent = await Event.create({ name: eventName, title, summary });
+        return res.status(201).json({ message: 'Event created successfully', event: newEvent });
+      }
+      res.status(200).json({ message: 'Event already exists' });
+    } catch (error) {
+      res.status(500).json({ error: 'Database error' });
+    }
+  } else {
+    res.status(405).json({ error: 'Method not allowed' });
+  }
+}
+```
+
+**Mongoose Schema for Events:**
+```javascript
+// models/Event.js
+import mongoose from 'mongoose';
+
+const eventSchema = new mongoose.Schema({
+  name: { type: String, required: true, unique: true },
+  title: { type: String, required: true },
+  summary: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+export default mongoose.models.Event || mongoose.model('Event', eventSchema);
+```
+
+---
+
+## **4. Registration (Route: `/register` and API: `/api/register`)
+
+### Description:
+Students can register by entering their roll number, scanning their ID card, and using their college email. Fields such as name, father’s name, branch, and year are auto-populated and non-editable.
+
+### API Implementation:
+```javascript
+// pages/api/register.js
+import User from '../../models/User';
+import connectToDatabase from '../../lib/mongodb';
+
+export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    const { rollNo, name, fname, branch, year, email, phone } = req.body;
+
+    try {
+      await connectToDatabase();
+      const existingUser = await User.findOne({ rollNo });
+      if (existingUser) return res.status(409).json({ error: 'User already registered' });
+
+      const newUser = await User.create({ rollNo, name, fname, branch, year, email, phone });
+      res.status(201).json({ message: 'User registered successfully', user: newUser });
+    } catch (error) {
+      res.status(500).json({ error: 'Database error' });
+    }
+  } else {
+    res.status(405).json({ error: 'Method not allowed' });
+  }
+}
+```
+
+**Mongoose Schema for Users:**
+```javascript
+// models/User.js
+const userSchema = new mongoose.Schema({
+  rollNo: { type: String, required: true, unique: true },
+  name: { type: String, required: true },
+  fname: { type: String, required: true },
+  branch: { type: String, required: true },
+  year: { type: Number, required: true },
+  email: { type: String, required: true, unique: true },
+  phone: { type: String, required: true },
+  isAdmin: { type: Boolean, default: false },
+});
+
+export default mongoose.models.User || mongoose.model('User', userSchema);
+```
+
+---
+
+## **5. Attendance System (Route: `/attendance` and API: `/api/attendance`)
+
+### Description:
+Users can scan a QR code to mark attendance. Location coordinates are validated in the backend.
+
+### Mongoose Schema for Attendance:
+```javascript
+// models/Attendance.js
+const attendanceSchema = new mongoose.Schema({
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  timestamp: { type: Date, default: Date.now },
+  coordinates: {
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true },
+  },
+  isValidLocation: { type: Boolean, default: false },
+});
+
+export default mongoose.models.Attendance || mongoose.model('Attendance', attendanceSchema);
+```
+
+**API Endpoint:**
+```javascript
+// pages/api/attendance.js
+import Attendance from '../../models/Attendance';
+import Event from '../../models/Event';
+
+export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    const { eventId, userId, coordinates } = req.body;
+
+    try {
+      const event = await Event.findById(eventId);
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+
+      const newAttendance = await Attendance.create({
+        eventId,
+        userId,
+        coordinates,
+        isValidLocation: true, // Add location validation here
+      });
+
+      res.status(201).json({ message: 'Attendance marked', attendance: newAttendance });
+    } catch (error) {
+      res.status(500).json({ error: 'Database error' });
+    }
+  } else {
+    res.status(405).json({ error: 'Method not allowed' });
+  }
+}
+```
+
+---
+
+This comprehensive guide now includes detailed descriptions, backend API implementations, and a well-structured project outline to ensure clarity and usability.
