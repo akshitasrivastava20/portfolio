@@ -27,11 +27,13 @@ export const fetchWakatimeStats = async (): Promise<{ seconds: number }> => {
         headers: {
           Authorization: `Basic ${Buffer.from(process.env.WAKATIME_API_KEY || '').toString('base64')}`,
         },
+        signal: AbortSignal.timeout(8000),
         next: { revalidate: 3600 },
       }
     )
     if (!res.ok) {
-      throw new Error(`HTTP error! status: ${res.status}`)
+      console.error(`Wakatime request failed with status: ${res.status}`)
+      return { seconds: 0 }
     }
     const data: WakatimeRes = await res.json()
     return {
@@ -39,7 +41,7 @@ export const fetchWakatimeStats = async (): Promise<{ seconds: number }> => {
     }
   } catch (error) {
     console.error('Fetch failed: ', error)
-    throw error
+    return { seconds: 0 }
   }
 }
 
